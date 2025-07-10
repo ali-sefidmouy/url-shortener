@@ -9,15 +9,12 @@ import (
 	"os"
 	"time"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
+	"url-shortener/config"
 	_ "github.com/lib/pq"
 )
 
 func initDB() {
-	envErr := godotenv.Load()
-	if envErr != nil {
-		log.Fatal("Error while loading .env file")
-	}
+	config.LoadEnvOrFail()
 
 	var err error
 	connStr := fmt.Sprintf(
@@ -112,5 +109,5 @@ func main() {
 		c.Redirect(http.StatusFound, original)
 	})
 
-	r.Run(":8080")
+	r.Run(":" + os.Getenv("HTTP_SERVER_PORT"))
 }

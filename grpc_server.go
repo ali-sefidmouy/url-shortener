@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"log"
 	"net"
+	"os"
 	"url-shortener/proto"
 
+	"url-shortener/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -67,7 +69,9 @@ func (s *urlShortenerServer) Resolve(ctx context.Context, req *proto.ResolveRequ
 }
 
 func startGRPCServer() {
-	lis, err := net.Listen("tcp", ":50051")
+	config.LoadEnvOrFail()
+
+	lis, err := net.Listen("tcp", ":" + os.Getenv("GRPC_SERVER_PORT"))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -75,7 +79,7 @@ func startGRPCServer() {
 	grpcServer := grpc.NewServer()
 	proto.RegisterURLShortenerServer(grpcServer, &urlShortenerServer{})
 
-	log.Println("gRPC server listening on :50051")
+	log.Println("gRPC server listening on :", os.Getenv("GRPC_SERVER_PORT"))
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve gRPC: %v", err)
 	}
