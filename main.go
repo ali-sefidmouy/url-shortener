@@ -13,8 +13,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var db *sql.DB
-
 func initDB() {
 	envErr := godotenv.Load()
 	if envErr != nil {
@@ -30,39 +28,34 @@ func initDB() {
 		os.Getenv("DB_PORT"),
 		os.Getenv("DB_NAME"),
 	)
-	db, err = sql.Open("postgres", connStr)
+	DB, err = sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal("Failed to connect to DB:", err)
 	}
 
-	if err := db.Ping(); err != nil {
+	if err := DB.Ping(); err != nil {
 		log.Fatal("DB not reachable:", err)
 	}
 }
 
-var urlStore = make(map[string]string)
 
 func generateShortURL() string {
 	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	for {
-		short := make([]byte, 8)
-		for i:= range short {
-			short[i] = letters[r.Intn(len(letters))]
-		}
-		code := string(short)
-
-		if _, exists := urlStore[code]; !exists {
-			return code
-		}
+	short := make([]byte, 8)
+	for i:= range short {
+		short[i] = letters[r.Intn(len(letters))]
 	}
+	return string(short)
 }
 
 
 func main() {
 	initDB()
-	defer db.Close()
+	defer DB.Close()
+
+	go startGRPCServer()
 
 	r := gin.Default()
 
@@ -77,15 +70,23 @@ func main() {
 		}
 
 		var existingCode string
-		err := db.QueryRow("SELECT short_code FROM urls WHERE original_url = $1", req.URL).Scan(&existingCode)
+		err := DB.QueryRow("SELECT short_code FROM urls WHERE original_url = $1", req.URL).Scan(&existingCode)
 
 		if err == nil {
 			c.JSON(http.StatusOK, gin.H{"short_url": "http://localhost:8080/" + existingCode})
 			return
 		}
 
-		short := generateShortURL()
-		_, err = db.Exec("INSERT INTO urls (original_url, short_code) VALUES ($1, $2)", req.URL, short)
+		var short string
+		for {
+			short = generateShortURL()
+			err = DB.QueryRow("SELECT short_code FROM urls WHERE short_code = $1", short).Scan(&existingCode)
+			if err == sql.ErrNoRows {
+				break // is unique, so break
+			}
+		}
+
+		_, err = DB.Exec("INSERT INTO urls (original_url, short_code) VALUES ($1, $2)", req.URL, short)
 		
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not save URL"})
@@ -101,7 +102,7 @@ func main() {
 		short := c.Param("short")
 		var original string
 		
-		err := db.QueryRow("SELECT original_url FROM urls WHERE short_code = $1", short).Scan(&original)
+		err := DB.QueryRow("SELECT original_url FROM urls WHERE short_code = $1", short).Scan(&original)
 
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found!"})
